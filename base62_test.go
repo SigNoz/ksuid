@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// these don't use the optimized version
 func TestBase10ToBase62AndBack(t *testing.T) {
 	number := []byte{1, 2, 3, 4}
 	encoded := base2base(number, 10, 62)
@@ -17,6 +18,7 @@ func TestBase10ToBase62AndBack(t *testing.T) {
 	}
 }
 
+// these don't use the optimized version
 func TestBase256ToBase62AndBack(t *testing.T) {
 	number := []byte{255, 254, 253, 251}
 	encoded := base2base(number, 256, 62)
@@ -27,6 +29,7 @@ func TestBase256ToBase62AndBack(t *testing.T) {
 	}
 }
 
+// these don't use the optimized version
 func TestEncodeAndDecodeBase62(t *testing.T) {
 	helloWorld := []byte("hello world")
 	encoded := encodeBase62(helloWorld)
@@ -42,6 +45,7 @@ func TestEncodeAndDecodeBase62(t *testing.T) {
 	}
 }
 
+// these don't use the optimized version
 func TestLexographicOrdering(t *testing.T) {
 	unsortedStrings := make([]string, 256)
 	for i := 0; i < 256; i++ {
@@ -62,6 +66,7 @@ func TestLexographicOrdering(t *testing.T) {
 	}
 }
 
+// these don't use the optimized version
 func TestBase62Value(t *testing.T) {
 	s := base62Characters
 
@@ -76,16 +81,17 @@ func TestBase62Value(t *testing.T) {
 	}
 }
 
+// these use the optimized version and compares the results with the generic version
 func TestFastAppendEncodeBase62(t *testing.T) {
 	for i := 0; i != 1000; i++ {
 		id := New()
 
 		b0 := id[:]
-		b1 := appendEncodeBase62(nil, b0)
-		b2 := fastAppendEncodeBase62(nil, b0)
+		generic := appendEncodeBase62(nil, b0)
+		optimized := fastAppendEncodeBase62(nil, b0)
 
-		s1 := string(leftpad(b1, '0', stringEncodedLength))
-		s2 := string(b2)
+		s1 := string(leftpad(generic, '0', stringEncodedLength))
+		s2 := string(optimized)
 
 		if s1 != s2 {
 			t.Error("bad base62 representation of", id)
@@ -107,6 +113,49 @@ func TestFastAppendDecodeBase62(t *testing.T) {
 			t.Error("bad binary representation of", string(b0))
 			t.Log("<<<", b1)
 			t.Log(">>>", b2)
+		}
+	}
+}
+
+func TestEncodeDecodeBase62(t *testing.T) {
+	for i := 0; i != 1000; i++ {
+		// Create new ID
+		id := New()
+		original := id[:]
+
+		// Encode using both methods
+		normalEncoded := encodeBase62(original)
+		fastEncoded := fastAppendEncodeBase62(nil, original)
+
+		// Verify both encoded versions match
+		if !bytes.Equal(normalEncoded, fastEncoded) {
+			t.Error("encoded versions don't match")
+			t.Log("normal encoded:", string(normalEncoded))
+			t.Log("fast encoded:", string(fastEncoded))
+		}
+
+		// Decode both encoded versions
+		normalDecoded := decodeBase62(normalEncoded)
+		fastDecoded := fastAppendDecodeBase62(nil, fastEncoded)
+
+		// Compare decoded results with original
+		if !bytes.Equal(leftpad(normalDecoded, 0, byteLength), original) {
+			t.Error("normal encode/decode failed to match original")
+			t.Log("original:", original)
+			t.Log("decoded:", normalDecoded)
+		}
+
+		if !bytes.Equal(fastDecoded, original) {
+			t.Error("fast encode/decode failed to match original")
+			t.Log("original:", original)
+			t.Log("decoded:", fastDecoded)
+		}
+
+		// Compare both decoded versions match each other
+		if !bytes.Equal(leftpad(normalDecoded, 0, byteLength), fastDecoded) {
+			t.Error("normal and fast decode results don't match")
+			t.Log("normal:", normalDecoded)
+			t.Log("fast:", fastDecoded)
 		}
 	}
 }
@@ -242,4 +291,55 @@ func leftpad(b []byte, c byte, n int) []byte {
 		}
 	}
 	return b
+}
+
+func TestFastEncodeBase62OverflowHandling(t *testing.T) {
+	// Create a source with maximum possible values to generate maximum number of digits
+	src := []byte{
+		0xFF, 0xFF, 0xFF, 0xFF, // Max uint32 values
+		0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF,
+	}
+
+	testCases := []struct {
+		name      string
+		bufferLen int
+	}{
+		{"small_buffer", 10},
+		{"exact_buffer", 32},
+		{"large_buffer", 40},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := make([]byte, tc.bufferLen)
+			fastEncodeBase62(dst, src)
+
+			// Verify all bytes are valid base62 characters
+			for i, b := range dst {
+				if !bytes.Contains([]byte(base62Characters), []byte{b}) {
+					t.Errorf("position %d contains invalid base62 character: %c", i, b)
+				}
+			}
+
+			// Verify the result is left-padded with zeros (if there's space)
+			firstNonZero := 0
+			for i, b := range dst {
+				if b != '0' {
+					firstNonZero = i
+					break
+				}
+			}
+
+			// All characters before firstNonZero should be '0'
+			for i := 0; i < firstNonZero; i++ {
+				if dst[i] != '0' {
+					t.Errorf("expected '0' at position %d, got %c", i, dst[i])
+				}
+			}
+		})
+	}
 }

@@ -36,15 +36,15 @@ func (set CompressedSet) GoString() string {
 }
 
 func (set CompressedSet) writeTo(b *bytes.Buffer) {
-	a := [27]byte{}
+	a := make([]byte, stringEncodedLength)
 
 	for i, it := 0, set.Iter(); it.Next(); i++ {
 		if i != 0 {
 			b.WriteString(", ")
 		}
 		b.WriteByte('"')
-		it.KSUID.Append(a[:0])
-		b.Write(a[:])
+		n := it.KSUID.Append(a[:0])
+		b.Write(n)
 		b.WriteByte('"')
 	}
 }
@@ -52,7 +52,7 @@ func (set CompressedSet) writeTo(b *bytes.Buffer) {
 // Compress creates and returns a compressed set of KSUIDs from the list given
 // as arguments.
 func Compress(ids ...KSUID) CompressedSet {
-	c := 1 + byteLength + (len(ids) / 5)
+	c := 1 + byteLength + (len(ids) * 2)
 	b := make([]byte, 0, c)
 	return AppendCompressed(b, ids...)
 }
@@ -92,10 +92,10 @@ func AppendCompressed(set []byte, ids ...KSUID) CompressedSet {
 
 			if t != timestamp {
 				d := t - timestamp
-				n := varintLength32(d)
+				n := varintLength64(d)
 
 				set = append(set, timeDelta|byte(n))
-				set = appendVarint32(set, d, n)
+				set = appendVarint64(set, d, n)
 				set = append(set, id[timestampLengthInBytes:]...)
 
 				timestamp = t
@@ -128,7 +128,7 @@ func AppendCompressed(set []byte, ids ...KSUID) CompressedSet {
 	return CompressedSet(set)
 }
 
-func rangeLength(ids []KSUID, timestamp uint32, lastKSUID KSUID, lastValue uint128) (length int, count int) {
+func rangeLength(ids []KSUID, timestamp uint64, lastKSUID KSUID, lastValue uint128) (length int, count int) {
 	one := makeUint128(0, 1)
 
 	for i := range ids {
@@ -263,7 +263,7 @@ type CompressedSetIter struct {
 	offset  int
 
 	seqlength uint64
-	timestamp uint32
+	timestamp uint64
 	lastValue uint128
 }
 
@@ -305,9 +305,9 @@ func (it *CompressedSetIter) Next() bool {
 		off1 := off0 + cnt
 		off2 := off1 + payloadLengthInBytes
 
-		it.timestamp += varint32(it.content[off0:off1])
+		it.timestamp += varint64(it.content[off0:off1])
 
-		binary.BigEndian.PutUint32(it.KSUID[:timestampLengthInBytes], it.timestamp)
+		binary.BigEndian.PutUint64(it.KSUID[:timestampLengthInBytes], it.timestamp)
 		copy(it.KSUID[timestampLengthInBytes:], it.content[off1:off2])
 
 		it.offset = off2

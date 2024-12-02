@@ -13,11 +13,13 @@ import (
 
 func TestConstructionTimestamp(t *testing.T) {
 	x := New()
-	nowTime := time.Now().Round(1 * time.Minute)
-	xTime := x.Time().Round(1 * time.Minute)
+	nowTime := time.Now()
+	xTime := x.Time()
 
-	if xTime != nowTime {
-		t.Fatal(xTime, "!=", nowTime)
+	// Allow for a small time difference (5 seconds) to account for execution time
+	difference := nowTime.Sub(xTime)
+	if difference < -5*time.Second || difference > 5*time.Second {
+		t.Fatalf("Time difference too large: %v (now: %v, x: %v)", difference, nowTime, xTime)
 	}
 }
 
@@ -41,8 +43,12 @@ func TestEncoding(t *testing.T) {
 	encoded := x.String()
 	expected := strings.Repeat("0", stringEncodedLength)
 
+	if len(encoded) != len(expected) {
+		t.Fatalf("encoded length mismatch: got %d, want %d", len(encoded), len(expected))
+	}
+
 	if encoded != expected {
-		t.Fatal("expected", expected, "encoded", encoded)
+		t.Fatalf("encoding mismatch:\nexpected: %q\nencoded:  %q", expected, encoded)
 	}
 }
 
@@ -61,6 +67,7 @@ func TestPadding(t *testing.T) {
 	}
 }
 
+// this is till breaking
 func TestParse(t *testing.T) {
 	_, err := Parse("123")
 	if err != errStrSize {
@@ -92,18 +99,51 @@ func TestParse(t *testing.T) {
 		t.Fatal("Unexpected error", err)
 	}
 
+	fmt.Println("maxBytesKSUID bytes:", maxBytesKSUID.Bytes())
+	fmt.Println("maxParseKSUID bytes:", maxParseKSUID.Bytes())
+
 	if Compare(maxBytesKSUID, maxParseKSUID) != 0 {
 		t.Fatal("String decoder broke for max string")
+	}
+}
+
+func TestMaxStringEncoded(t *testing.T) {
+	// Parse the known maximum string value
+	maxKSUID, err := Parse(maxStringEncoded)
+	if err != nil {
+		t.Fatalf("Failed to parse maxStringEncoded: %v", err)
+	}
+
+	// Get the string representation
+	maxString := maxKSUID.String()
+	t.Logf("Max string encoded value: %s (length: %d)", maxString, len(maxString))
+
+	// Verify it matches our constant
+	if maxString != maxStringEncoded {
+		t.Errorf("String representation doesn't match maxStringEncoded\nGot:      %s\nExpected: %s",
+			maxString, maxStringEncoded)
+	}
+
+	// Verify we can parse it back
+	parsed, err := Parse(maxString)
+	if err != nil {
+		t.Fatalf("Failed to parse max string: %v", err)
+	}
+
+	// Verify the parsed value matches the original
+	if parsed != maxKSUID {
+		t.Error("Parsed KSUID doesn't match original")
 	}
 }
 
 func TestIssue25(t *testing.T) {
 	// https://github.com/segmentio/ksuid/issues/25
 	for _, s := range []string{
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"aWgEPTl1tmebfsQzFP4bxwgy80!",
 	} {
-		_, err := Parse(s)
+		v, err := Parse(s)
+		fmt.Println(v.String())
 		if err != errStrValue {
 			t.Error("invalid KSUID representations cannot be successfully parsed, got err =", err)
 		}
@@ -240,7 +280,7 @@ func TestSqlScanner(t *testing.T) {
 }
 
 func TestAppend(t *testing.T) {
-	for _, repr := range []string{"0pN1Own7255s7jwpwy495bAZeEa", "aWgEPTl1tmebfsQzFP4bxwgy80V"} {
+	for _, repr := range []string{"35juj2zOUpERe09RCGq6HPvUol5qYQKa", "35juj2zOn4MN5WSbAoLwCqmTEEmqItPw"} {
 		k, _ := Parse(repr)
 		a := make([]byte, 0, stringEncodedLength)
 
@@ -288,11 +328,11 @@ func TestPrevNext(t *testing.T) {
 		{
 			id:   Nil,
 			prev: Max,
-			next: KSUID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+			next: KSUID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
 		},
 		{
 			id:   Max,
-			prev: KSUID{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe},
+			prev: KSUID{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe},
 			next: Nil,
 		},
 	}
@@ -308,8 +348,8 @@ func TestGetTimestamp(t *testing.T) {
 	nowTime := time.Now()
 	x, _ := NewRandomWithTime(nowTime)
 	xTime := int64(x.Timestamp())
-	unix := nowTime.Unix()
-	if xTime != unix - epochStamp {
+	unix := nowTime.UnixNano()
+	if xTime != unix-int64(epochStamp) {
 		t.Fatal(xTime, "!=", unix)
 	}
 }

@@ -24,10 +24,10 @@ func makeUint128FromPayload(payload []byte) uint128 {
 	}
 }
 
-func (v uint128) ksuid(timestamp uint32) (out KSUID) {
-	binary.BigEndian.PutUint32(out[:4], timestamp) // time
-	binary.BigEndian.PutUint64(out[4:12], v[1])    // high
-	binary.BigEndian.PutUint64(out[12:], v[0])     // low
+func (v uint128) ksuid(timestamp uint64) (out KSUID) {
+	binary.BigEndian.PutUint64(out[:timestampLengthInBytes], timestamp)                    // timestamp
+	binary.BigEndian.PutUint64(out[timestampLengthInBytes:timestampLengthInBytes+8], v[1]) // high
+	binary.BigEndian.PutUint64(out[timestampLengthInBytes+8:], v[0])                       // low
 	return
 }
 

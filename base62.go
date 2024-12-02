@@ -8,7 +8,7 @@ import (
 const (
 	// lexographic ordering (based on Unicode table) is 0-9A-Za-z
 	base62Characters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	zeroString       = "000000000000000000000000000"
+	zeroString       = "00000000000000000000000000000000"
 	offsetUppercase  = 10
 	offsetLowercase  = 36
 )
@@ -33,52 +33,65 @@ func base62Value(digit byte) byte {
 // form into dst.
 //
 // In order to support a couple of optimizations the function assumes that src
-// is 20 bytes long and dst is 27 bytes long.
+// is 24 bytes long and dst is 32 bytes long.
 //
 // Any unused bytes in dst will be set to the padding '0' byte.
 func fastEncodeBase62(dst []byte, src []byte) {
 	const srcBase = 4294967296
 	const dstBase = 62
 
-	// Split src into 5 4-byte words, this is where most of the efficiency comes
-	// from because this is a O(N^2) algorithm, and we make N = N / 4 by working
-	// on 32 bits at a time.
-	parts := [5]uint32{
+	// Split src into 6 4-byte words
+	parts := [6]uint32{
 		binary.BigEndian.Uint32(src[0:4]),
 		binary.BigEndian.Uint32(src[4:8]),
 		binary.BigEndian.Uint32(src[8:12]),
 		binary.BigEndian.Uint32(src[12:16]),
 		binary.BigEndian.Uint32(src[16:20]),
+		binary.BigEndian.Uint32(src[20:24]),
 	}
 
+	// Initialize the output position at the end
 	n := len(dst)
-	bp := parts[:]
-	bq := [5]uint32{}
 
-	for len(bp) != 0 {
-		quotient := bq[:0]
-		remainder := uint64(0)
+	// Process all parts
+	partsSlice := parts[:] // Convert array to slice at the start
+	for len(partsSlice) > 0 {
+		var remainder uint64
+		quotient := make([]uint32, 0, len(partsSlice))
 
-		for _, c := range bp {
-			value := uint64(c) + uint64(remainder)*srcBase
-			digit := value / dstBase
-			remainder = value % dstBase
+		// Process each part
+		for _, part := range partsSlice {
+			acc := uint64(part) + remainder*srcBase
+			remainder = acc % dstBase
+			digit := acc / dstBase
 
-			if len(quotient) != 0 || digit != 0 {
+			if len(quotient) > 0 || digit > 0 {
 				quotient = append(quotient, uint32(digit))
 			}
 		}
 
-		// Writes at the end of the destination buffer because we computed the
-		// lowest bits first.
-		n--
-		dst[n] = base62Characters[remainder]
-		bp = quotient
+		// Instead of going below 0, wrap around to the end of the buffer
+		if n > 0 {
+			n--
+			dst[n] = base62Characters[remainder]
+		} else {
+			// If we run out of space, stop
+			break
+		}
+
+		// Break if no more quotient
+		if len(quotient) == 0 {
+			break
+		}
+
+		// Update parts for next iteration
+		partsSlice = quotient
 	}
 
-	// Add padding at the head of the destination buffer for all bytes that were
-	// not set.
-	copy(dst[:n], zeroString)
+	// Only pad zeros if we have space left
+	if n > 0 {
+		copy(dst[:n], zeroString)
+	}
 }
 
 // This function appends the base 62 representation of the KSUID in src to dst,
@@ -105,9 +118,9 @@ func fastDecodeBase62(dst []byte, src []byte) error {
 
 	// This line helps BCE (Bounds Check Elimination).
 	// It may be safely removed.
-	_ = src[26]
+	_ = src[31]
 
-	parts := [27]byte{
+	parts := [32]byte{
 		base62Value(src[0]),
 		base62Value(src[1]),
 		base62Value(src[2]),
@@ -137,6 +150,11 @@ func fastDecodeBase62(dst []byte, src []byte) error {
 		base62Value(src[24]),
 		base62Value(src[25]),
 		base62Value(src[26]),
+		base62Value(src[27]),
+		base62Value(src[28]),
+		base62Value(src[29]),
+		base62Value(src[30]),
+		base62Value(src[31]),
 	}
 
 	n := len(dst)
@@ -169,7 +187,7 @@ func fastDecodeBase62(dst []byte, src []byte) error {
 		bp = quotient
 	}
 
-	var zero [20]byte
+	var zero [24]byte
 	copy(dst[:n], zero[:])
 	return nil
 }

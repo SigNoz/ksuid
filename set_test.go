@@ -1,6 +1,7 @@
 package ksuid
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -57,27 +58,42 @@ func TestCompressedSet(t *testing.T) {
 	}
 }
 
+// Helper to generate test data
+func generateTestKSUIDs() ([]KSUID, string) {
+	ids := []KSUID{New(), New(), New()}
+	for _, id := range ids {
+		fmt.Println(id.String())
+		fmt.Println(id.Timestamp())
+	}
+	expected := fmt.Sprintf(`["%s", "%s", "%s"]`, ids[0], ids[1], ids[2])
+	return ids, expected
+}
+
 func testCompressedSetString(t *testing.T) {
-	id1, _ := Parse("0uHjRkQoL2JKAQIULPdqqb5fOkk")
-	id2, _ := Parse("0uHjRvkOG5CbtoXW5oCEp3L2xBu")
-	id3, _ := Parse("0uHjSJ4Pe5606kT2XWixK6dirlo")
+	ids, expected := generateTestKSUIDs()
+	set := Compress(ids...)
 
-	set := Compress(id1, id2, id3)
-
-	if s := set.String(); s != `["0uHjRkQoL2JKAQIULPdqqb5fOkk", "0uHjRvkOG5CbtoXW5oCEp3L2xBu", "0uHjSJ4Pe5606kT2XWixK6dirlo"]` {
-		t.Error(s)
+	fmt.Println(set.String())
+	if s := set.String(); s != expected {
+		t.Errorf("got %s, want %s", s, expected)
 	}
 }
 
 func testCompressedSetGoString(t *testing.T) {
-	id1, _ := Parse("0uHjRkQoL2JKAQIULPdqqb5fOkk")
-	id2, _ := Parse("0uHjRvkOG5CbtoXW5oCEp3L2xBu")
-	id3, _ := Parse("0uHjSJ4Pe5606kT2XWixK6dirlo")
+	id1, _ := Parse("00000000000000008iSPAcOFKMKMlaAS")
+	id2, _ := Parse("00000000000000008iSPBmckldOJIs7g")
+	id3, _ := Parse("00000000000000008iSPBmcoY3a17bPN")
 
 	set := Compress(id1, id2, id3)
 
-	if s := set.GoString(); s != `ksuid.CompressedSet{"0uHjRkQoL2JKAQIULPdqqb5fOkk", "0uHjRvkOG5CbtoXW5oCEp3L2xBu", "0uHjSJ4Pe5606kT2XWixK6dirlo"}` {
-		t.Error(s)
+	expected := `ksuid.CompressedSet{` +
+		`"00000000000000008iSPAcOFKMKMlaAS", ` +
+		`"00000000000000008iSPBmckldOJIs7g", ` +
+		`"00000000000000008iSPBmcoY3a17bPN"` +
+		`}`
+
+	if got := set.GoString(); got != expected {
+		t.Errorf("GoString() = %v, want %v", got, expected)
 	}
 }
 
