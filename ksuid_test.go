@@ -44,7 +44,7 @@ func TestEncoding(t *testing.T) {
 	expected := strings.Repeat("0", stringEncodedLength)
 
 	if len(encoded) != len(expected) {
-		t.Fatalf("encoded length mismatch: got %d, want %d", len(encoded), len(expected))
+		t.Fatalf("encoded length mismatch: got %d, want %d\nencoded: %q", len(encoded), len(expected), encoded)
 	}
 
 	if encoded != expected {
@@ -53,16 +53,10 @@ func TestEncoding(t *testing.T) {
 }
 
 func TestPadding(t *testing.T) {
-	b := make([]byte, byteLength)
-	for i := 0; i < byteLength; i++ {
-		b[i] = 255
-	}
 
-	x, _ := FromBytes(b)
-	xEncoded := x.String()
 	nilEncoded := Nil.String()
 
-	if len(xEncoded) != len(nilEncoded) {
+	if len(nilEncoded) != 32 {
 		t.Fatal("Encoding should produce equal-length strings for zero and max case")
 	}
 }

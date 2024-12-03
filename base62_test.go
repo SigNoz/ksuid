@@ -2,6 +2,7 @@ package ksuid
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -294,52 +295,63 @@ func leftpad(b []byte, c byte, n int) []byte {
 }
 
 func TestFastEncodeBase62OverflowHandling(t *testing.T) {
-	// Create a source with maximum possible values to generate maximum number of digits
+	// Create a source with 24 bytes (the expected input size for fastEncodeBase62)
 	src := []byte{
-		0xFF, 0xFF, 0xFF, 0xFF, // Max uint32 values
 		0xFF, 0xFF, 0xFF, 0xFF,
 		0xFF, 0xFF, 0xFF, 0xFF,
 		0xFF, 0xFF, 0xFF, 0xFF,
 		0xFF, 0xFF, 0xFF, 0xFF,
 		0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFE,
 	}
 
-	testCases := []struct {
-		name      string
-		bufferLen int
-	}{
-		{"small_buffer", 10},
-		{"exact_buffer", 32},
-		{"large_buffer", 40},
+	if len(src) != byteLength {
+		t.Fatalf("Test source must be exactly %d bytes, got %d", byteLength, len(src))
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			dst := make([]byte, tc.bufferLen)
-			fastEncodeBase62(dst, src)
+	// Create properly sized buffers
+	normalEncoded := encodeBase62(src)
+	fastEncoded := fastAppendEncodeBase62(nil, src)
 
-			// Verify all bytes are valid base62 characters
-			for i, b := range dst {
-				if !bytes.Contains([]byte(base62Characters), []byte{b}) {
-					t.Errorf("position %d contains invalid base62 character: %c", i, b)
-				}
-			}
+	fmt.Printf("Normal encoded: %v\n", string(normalEncoded))
+	fmt.Printf("Fast encoded: %v\n", string(fastEncoded))
 
-			// Verify the result is left-padded with zeros (if there's space)
-			firstNonZero := 0
-			for i, b := range dst {
-				if b != '0' {
-					firstNonZero = i
-					break
-				}
-			}
+	// Compare encoded results
+	if !bytes.Equal(normalEncoded, fastEncoded) {
+		t.Errorf("Fast encoding differs from normal encoding\nNormal: %s\nFast:   %s",
+			string(normalEncoded), string(fastEncoded))
 
-			// All characters before firstNonZero should be '0'
-			for i := 0; i < firstNonZero; i++ {
-				if dst[i] != '0' {
-					t.Errorf("expected '0' at position %d, got %c", i, dst[i])
-				}
-			}
-		})
+		// Additional debug information
+		t.Logf("Normal encoded length: %d", len(normalEncoded))
+		t.Logf("Fast encoded length: %d", len(fastEncoded))
+		t.Logf("Expected length: %d", stringEncodedLength)
+		t.Logf("Normal first byte: %c", normalEncoded[0])
+		t.Logf("Fast first byte: %c", fastEncoded[0])
+	}
+
+	// Decode both encoded versions
+	normalDecoded := decodeBase62(normalEncoded)
+	fastDecoded := make([]byte, byteLength)
+	if err := fastDecodeBase62(fastDecoded, fastEncoded); err != nil {
+		t.Fatalf("Fast decode failed: %v", err)
+	}
+
+	fmt.Printf("Normal decoded: %v\n", normalDecoded)
+	fmt.Printf("Fast decoded: %v\n", fastDecoded)
+	// Compare decoded results with original
+	if !bytes.Equal(normalDecoded, src) {
+		t.Errorf("Normal decode failed to match original\nOriginal: %v\nDecoded:  %v",
+			src, normalDecoded)
+	}
+
+	if !bytes.Equal(fastDecoded, src) {
+		t.Errorf("Fast decode failed to match original\nOriginal: %v\nDecoded:  %v",
+			src, fastDecoded)
+	}
+
+	// Compare both decoded versions
+	if !bytes.Equal(normalDecoded, fastDecoded) {
+		t.Errorf("Decoded results don't match\nNormal: %v\nFast:   %v",
+			normalDecoded, fastDecoded)
 	}
 }

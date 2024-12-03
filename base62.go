@@ -3,6 +3,7 @@ package ksuid
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 )
 
 const (
@@ -40,6 +41,14 @@ func fastEncodeBase62(dst []byte, src []byte) {
 	const srcBase = 4294967296
 	const dstBase = 62
 
+	// Create a temporary buffer for calculations
+	var temp [33]byte
+
+	// Initialize with zeros
+	for i := range temp {
+		temp[i] = '0'
+	}
+
 	// Split src into 6 4-byte words
 	parts := [6]uint32{
 		binary.BigEndian.Uint32(src[0:4]),
@@ -50,11 +59,10 @@ func fastEncodeBase62(dst []byte, src []byte) {
 		binary.BigEndian.Uint32(src[20:24]),
 	}
 
-	// Initialize the output position at the end
-	n := len(dst)
-
 	// Process all parts
-	partsSlice := parts[:] // Convert array to slice at the start
+	partsSlice := parts[:]
+	n := len(temp)
+
 	for len(partsSlice) > 0 {
 		var remainder uint64
 		quotient := make([]uint32, 0, len(partsSlice))
@@ -62,36 +70,31 @@ func fastEncodeBase62(dst []byte, src []byte) {
 		// Process each part
 		for _, part := range partsSlice {
 			acc := uint64(part) + remainder*srcBase
-			remainder = acc % dstBase
 			digit := acc / dstBase
+			remainder = acc % dstBase
 
 			if len(quotient) > 0 || digit > 0 {
 				quotient = append(quotient, uint32(digit))
 			}
 		}
 
-		// Instead of going below 0, wrap around to the end of the buffer
-		if n > 0 {
-			n--
-			dst[n] = base62Characters[remainder]
-		} else {
-			// If we run out of space, stop
-			break
+		// Write the digit
+		n--
+		if n >= 0 {
+			temp[n] = base62Characters[remainder]
 		}
 
-		// Break if no more quotient
-		if len(quotient) == 0 {
-			break
-		}
-
-		// Update parts for next iteration
 		partsSlice = quotient
+
+	}
+	// Pad with zeros if we have less than 32 characters
+	// Pad only the remaining unwritten positions from 0 to n-1
+	for i := 0; i < n; i++ {
+		temp[i] = '0'
 	}
 
-	// Only pad zeros if we have space left
-	if n > 0 {
-		copy(dst[:n], zeroString)
-	}
+	// Copy the entire result to dst, including leading zeros
+	copy(dst, temp[:])
 }
 
 // This function appends the base 62 representation of the KSUID in src to dst,
@@ -99,10 +102,38 @@ func fastEncodeBase62(dst []byte, src []byte) {
 // The result is left-padded with '0' bytes to always append 27 bytes to the
 // destination buffer.
 func fastAppendEncodeBase62(dst []byte, src []byte) []byte {
-	dst = reserve(dst, stringEncodedLength)
+	// Always allocate 33 bytes to handle overflow cases
+	dst = reserve(dst, 33)
 	n := len(dst)
-	fastEncodeBase62(dst[n:n+stringEncodedLength], src)
-	return dst[:n+stringEncodedLength]
+	result := dst[n : n+33]
+
+	// Encode into the full buffer
+	fastEncodeBase62(result, src)
+
+	fmt.Printf("After encoding: %s\n", string(result))
+
+	// Find first non-zero character
+
+	start := 0
+	if start < len(result) && result[start] == '0' {
+		start++
+	}
+	if start == len(result) {
+		start = len(result) - 1
+	}
+
+	fmt.Printf("Start position: %d\n", start)
+
+	// Create new slice with just the significant portion
+	significant := result[start:]
+
+	// Create final slice at the correct position
+	final := dst[n : n+len(significant)]
+
+	// Copy the significant digits
+	copy(final, significant)
+
+	return dst[:n+len(significant)]
 }
 
 // This function decodes the base 62 representation of the src KSUID to the
@@ -114,59 +145,31 @@ func fastAppendEncodeBase62(dst []byte, src []byte) []byte {
 // Any unused bytes in dst will be set to zero.
 func fastDecodeBase62(dst []byte, src []byte) error {
 	const srcBase = 62
-	const dstBase = 4294967296
+	const dstBase = 4294967296 // 2^32
 
-	// This line helps BCE (Bounds Check Elimination).
-	// It may be safely removed.
-	_ = src[31]
-
-	parts := [32]byte{
-		base62Value(src[0]),
-		base62Value(src[1]),
-		base62Value(src[2]),
-		base62Value(src[3]),
-		base62Value(src[4]),
-		base62Value(src[5]),
-		base62Value(src[6]),
-		base62Value(src[7]),
-		base62Value(src[8]),
-		base62Value(src[9]),
-
-		base62Value(src[10]),
-		base62Value(src[11]),
-		base62Value(src[12]),
-		base62Value(src[13]),
-		base62Value(src[14]),
-		base62Value(src[15]),
-		base62Value(src[16]),
-		base62Value(src[17]),
-		base62Value(src[18]),
-		base62Value(src[19]),
-
-		base62Value(src[20]),
-		base62Value(src[21]),
-		base62Value(src[22]),
-		base62Value(src[23]),
-		base62Value(src[24]),
-		base62Value(src[25]),
-		base62Value(src[26]),
-		base62Value(src[27]),
-		base62Value(src[28]),
-		base62Value(src[29]),
-		base62Value(src[30]),
-		base62Value(src[31]),
+	// Determine the actual size needed based on input length
+	size := 32
+	if len(src) == 33 {
+		size = 33
 	}
 
+	// Convert each character to its base62 value
+	parts := make([]byte, size)
+	for i := 0; i < len(src) && i < size; i++ {
+		parts[i] = base62Value(src[i])
+	}
+
+	// Process in 32-bit chunks
 	n := len(dst)
 	bp := parts[:]
-	bq := [stringEncodedLength]byte{}
+	bq := make([]byte, size) // Make buffer same size as input
 
 	for len(bp) > 0 {
 		quotient := bq[:0]
 		remainder := uint64(0)
 
 		for _, c := range bp {
-			value := uint64(c) + uint64(remainder)*srcBase
+			value := uint64(c) + remainder*srcBase
 			digit := value / dstBase
 			remainder = value % dstBase
 
@@ -179,6 +182,7 @@ func fastDecodeBase62(dst []byte, src []byte) error {
 			return errShortBuffer
 		}
 
+		// Write the remainder as a 32-bit big-endian integer
 		dst[n-4] = byte(remainder >> 24)
 		dst[n-3] = byte(remainder >> 16)
 		dst[n-2] = byte(remainder >> 8)
@@ -187,8 +191,10 @@ func fastDecodeBase62(dst []byte, src []byte) error {
 		bp = quotient
 	}
 
-	var zero [24]byte
-	copy(dst[:n], zero[:])
+	// Zero out any remaining bytes
+	for i := 0; i < n; i++ {
+		dst[i] = 0
+	}
 	return nil
 }
 

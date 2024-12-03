@@ -39,7 +39,7 @@ const (
 	// A 24-byte binary value (all set to 0xFF) needs 32 base62 characters to be fully represented
 	// this when decoded should give me all 0xFF bytes
 	// maxStringEncoded = "aWgEPTl1tmebfsQzFP4bxwgy80V7n9vD"
-	maxStringEncoded = "lFA6LboL2xx0ldQH2K1TdSrwuqMMiME3"
+	maxStringEncoded = "2lFA6LboL2xx0ldQH2K1TdSrwuqMMiME3"
 )
 
 // KSUIDs are 24 bytes:
@@ -181,22 +181,24 @@ func (i *KSUID) scan(b []byte) error {
 
 // Parse decodes a string-encoded representation of a KSUID object
 func Parse(s string) (KSUID, error) {
-	if len(s) != stringEncodedLength {
+	if len(s) != stringEncodedLength && len(s) != 33 {
 		return Nil, errStrSize
 	}
 
 	// Verify the string is within bounds
-	if s < minStringEncoded || s > maxStringEncoded {
-		return Nil, errStrValue
+	if len(s) == stringEncodedLength {
+		if s < minStringEncoded || s > maxStringEncoded {
+			return Nil, errStrValue
+		}
 	}
 
-	src := [stringEncodedLength]byte{}
+	src := [33]byte{} // Adjusted to handle 33 bytes
 	dst := [byteLength]byte{}
 
 	// Copy the string into our src buffer
 	copy(src[:], s)
 
-	if err := fastDecodeBase62(dst[:], src[:]); err != nil {
+	if err := fastDecodeBase62(dst[:], src[:stringEncodedLength]); err != nil {
 		return Nil, err
 	}
 
