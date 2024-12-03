@@ -49,7 +49,8 @@ type randSourceReader struct {
 
 func (r *randSourceReader) Read(b []byte) (int, error) {
 	// optimized for generating 16 bytes payloads
-	binary.LittleEndian.PutUint64(b[:8], r.source.Uint64())
-	binary.LittleEndian.PutUint64(b[8:], r.source.Uint64())
+	val := r.source.Uint64()
+	binary.LittleEndian.PutUint32(b[:4], uint32(val))       // Use lower 32 bits
+	binary.LittleEndian.PutUint64(b[4:], r.source.Uint64()) // Generate new 64 bits
 	return 16, nil
 }
