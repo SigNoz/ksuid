@@ -15,31 +15,37 @@ import (
 const (
 	// KSUID's epoch starts more recently so that the 32-bit number space gives a
 	// significantly higher useful lifetime of around 136 years from March 2017.
-	// This number (14e8) was picked to be easy to remember.
-	epochStamp int64 = 1400000000
+	// This number (14e8 in s) was picked to be easy to remember.
+	epochStamp uint64 = 1400000000000000000
 
 	// Timestamp is a uint32
-	timestampLengthInBytes = 4
+	timestampLengthInBytes = 8
 
 	// Payload is 16-bytes
 	payloadLengthInBytes = 16
 
-	// KSUIDs are 20 bytes when binary encoded
+	// KSUIDs are 24 bytes when binary encoded (8 byte timestamp + 16 byte payload)
 	byteLength = timestampLengthInBytes + payloadLengthInBytes
 
 	// The length of a KSUID when string (base62) encoded
-	stringEncodedLength = 27
+	stringEncodedLength = 32
 
 	// A string-encoded minimum value for a KSUID
-	minStringEncoded = "000000000000000000000000000"
+	minStringEncoded = "00000000000000000000000000000000"
 
 	// A string-encoded maximum value for a KSUID
-	maxStringEncoded = "aWgEPTl1tmebfsQzFP4bxwgy80V"
+	// maxStringEncoded = "aWgEPTl1tmebfsQzFP4bxwgy80V"
+
+	// A 24-byte binary value (all set to 0xFF) needs 32 base62 characters to be fully represented
+	// this when decoded should give me all 0xFF bytes
+	// maxStringEncoded = "aWgEPTl1tmebfsQzFP4bxwgy80V7n9vD"
+	maxStringEncoded = "2lFA6LboL2xx0ldQH2K1TdSrwuqMMiME3"
 )
 
-// KSUIDs are 20 bytes:
-//  00-03 byte: uint32 BE UTC timestamp with custom epoch
-//  04-19 byte: random "payload"
+// KSUIDs are 24 bytes:
+//
+//	00-07 byte: uint64 BE UTC timestamp with custom epoch
+//	08-23 byte: random "payload"
 type KSUID [byteLength]byte
 
 var (
@@ -55,7 +61,7 @@ var (
 	// Represents a completely empty (invalid) KSUID
 	Nil KSUID
 	// Represents the highest value a KSUID can have
-	Max = KSUID{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255}
+	Max = KSUID{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255}
 )
 
 // Append appends the string representation of i to b, returning a slice to a
@@ -71,8 +77,8 @@ func (i KSUID) Time() time.Time {
 
 // The timestamp portion of the ID as a bare integer which is uncorrected
 // for KSUID's special epoch.
-func (i KSUID) Timestamp() uint32 {
-	return binary.BigEndian.Uint32(i[:timestampLengthInBytes])
+func (i KSUID) Timestamp() uint64 {
+	return binary.BigEndian.Uint64(i[:timestampLengthInBytes])
 }
 
 // The 16-byte random payload without the timestamp
@@ -175,17 +181,25 @@ func (i *KSUID) scan(b []byte) error {
 
 // Parse decodes a string-encoded representation of a KSUID object
 func Parse(s string) (KSUID, error) {
-	if len(s) != stringEncodedLength {
+	if len(s) != stringEncodedLength && len(s) != 33 {
 		return Nil, errStrSize
 	}
 
-	src := [stringEncodedLength]byte{}
+	// Verify the string is within bounds
+	if len(s) == stringEncodedLength {
+		if s < minStringEncoded || s > maxStringEncoded {
+			return Nil, errStrValue
+		}
+	}
+
+	src := [33]byte{} // Adjusted to handle 33 bytes
 	dst := [byteLength]byte{}
 
-	copy(src[:], s[:])
+	// Copy the string into our src buffer
+	copy(src[:], s)
 
-	if err := fastDecodeBase62(dst[:], src[:]); err != nil {
-		return Nil, errStrValue
+	if err := fastDecodeBase62(dst[:], src[:stringEncodedLength]); err != nil {
+		return Nil, err
 	}
 
 	return FromBytes(dst[:])
@@ -201,12 +215,12 @@ func ParseOrNil(s string) KSUID {
 	return ksuid
 }
 
-func timeToCorrectedUTCTimestamp(t time.Time) uint32 {
-	return uint32(t.Unix() - epochStamp)
+func timeToCorrectedUTCTimestamp(t time.Time) uint64 {
+	return uint64(t.UnixNano()) - epochStamp
 }
 
-func correctedUTCTimestampToTime(ts uint32) time.Time {
-	return time.Unix(int64(ts)+epochStamp, 0)
+func correctedUTCTimestampToTime(ts uint64) time.Time {
+	return time.Unix(0, int64(ts+epochStamp))
 }
 
 // Generates a new KSUID. In the strange case that random bytes
@@ -228,6 +242,7 @@ func NewRandomWithTime(t time.Time) (ksuid KSUID, err error) {
 	// Go's default random number generators are not safe for concurrent use by
 	// multiple goroutines, the use of the rander and randBuffer are explicitly
 	// synchronized here.
+	fmt.Println(t.UnixNano())
 	randMutex.Lock()
 
 	_, err = io.ReadAtLeast(rander, randBuffer[:], len(randBuffer))
@@ -241,7 +256,7 @@ func NewRandomWithTime(t time.Time) (ksuid KSUID, err error) {
 	}
 
 	ts := timeToCorrectedUTCTimestamp(t)
-	binary.BigEndian.PutUint32(ksuid[:timestampLengthInBytes], ts)
+	binary.BigEndian.PutUint64(ksuid[:timestampLengthInBytes], ts)
 	return
 }
 
@@ -254,7 +269,7 @@ func FromParts(t time.Time, payload []byte) (KSUID, error) {
 	var ksuid KSUID
 
 	ts := timeToCorrectedUTCTimestamp(t)
-	binary.BigEndian.PutUint32(ksuid[:timestampLengthInBytes], ts)
+	binary.BigEndian.PutUint64(ksuid[:timestampLengthInBytes], ts)
 
 	copy(ksuid[timestampLengthInBytes:], payload)
 
