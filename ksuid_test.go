@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -307,6 +308,8 @@ func TestPrevNext(t *testing.T) {
 func TestGetTimestamp(t *testing.T) {
 	nowTime := time.Now()
 	x, _ := NewRandomWithTime(nowTime)
+	y, _ := NewRandomWithTime(time.Now())
+	fmt.Println(x, y)
 	xTime := int64(x.Timestamp())
 	unix := nowTime.UnixNano()
 	if xTime != unix-epochStamp {
@@ -386,4 +389,73 @@ func BenchmarkNew(b *testing.B) {
 			New()
 		}
 	})
+}
+
+// TestTimeMonotonicity verifies timestamps are monotonically increasing
+func TestTimeMonotonicity(t *testing.T) {
+	count := 10000
+	ids := make([]KSUID, count)
+
+	for i := 0; i < count; i++ {
+		ids[i] = New()
+	}
+
+	// Verify timestamps are monotonic
+	for i := 1; i < count; i++ {
+		if ids[i].Time().Before(ids[i-1].Time()) {
+			t.Errorf("Time monotonicity violated at index %d", i)
+		}
+	}
+}
+
+// TestConcurrentUniqueness verifies no collisions in concurrent generation
+func TestConcurrentUniqueness(t *testing.T) {
+	count := 100000
+	ids := make([]KSUID, count)
+	var wg sync.WaitGroup
+
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			ids[index] = New()
+		}(i)
+	}
+	wg.Wait()
+
+	// Check for duplicates
+	seen := make(map[KSUID]bool)
+	for _, id := range ids {
+		if seen[id] {
+			t.Error("Duplicate KSUID found")
+		}
+		seen[id] = true
+	}
+}
+
+// BenchmarkCollisionProbability generates many IDs in same nanosecond
+func BenchmarkCollisionProbability(b *testing.B) {
+	b.StopTimer()
+	ids := make([]KSUID, b.N)
+
+	// Force same timestamp for all IDs
+	timestamp := time.Now()
+	b.StartTimer()
+
+	for i := 0; i < b.N; i++ {
+		ids[i], _ = NewRandomWithTime(timestamp)
+	}
+
+	// Check for collisions
+	seen := make(map[KSUID]bool)
+	collisions := 0
+
+	for _, id := range ids {
+		if seen[id] {
+			collisions++
+		}
+		seen[id] = true
+	}
+
+	b.ReportMetric(float64(collisions), "collisions")
 }
