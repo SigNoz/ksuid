@@ -213,10 +213,13 @@ func varintLength128(v uint128) int {
 }
 
 func varintLength96(v uint96) int {
-	if v[1] != 0 {
-		return 8 + varintLength64(v[1])
+	if v[2] != 0 {
+		return 8 + varintLength32(v[2])
 	}
-	return varintLength64(v[0])
+	if v[1] != 0 {
+		return 4 + varintLength32(v[1])
+	}
+	return varintLength32(v[0])
 }
 
 func varintLength64(v uint64) int {
