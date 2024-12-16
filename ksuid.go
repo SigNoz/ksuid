@@ -39,8 +39,8 @@ const (
 
 // KSUIDs are 20 bytes:
 //
-//	00-03 byte: uint32 BE UTC timestamp with custom epoch
-//	04-19 byte: random "payload"
+//	00-07 byte: uint64 BE UTC timestamp with nanosecond epoch
+//	08-19 byte: random "payload"
 type KSUID [byteLength]byte
 
 var (
@@ -237,7 +237,6 @@ func NewRandomWithTime(t time.Time) (ksuid KSUID, err error) {
 	randMutex.Unlock()
 
 	if err != nil {
-		fmt.Println("error in NewRandomWithTime", err)
 		ksuid = Nil // don't leak random bytes on error
 		return
 	}

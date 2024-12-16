@@ -7,6 +7,11 @@ import (
 )
 
 // uint96 represents an unsigned 96 bits little endian integer.
+
+// So there are two different endian considerations here:
+// The internal array structure is little-endian (lowest bits in lowest index)
+// The external byte serialization is big-endian (highest bits in lowest byte address)
+
 type uint96 [3]uint32 // [0] holds low 32 bits, [1] holds middle 32 bits, [2] holds high 32 bits
 
 func uint96Payload(ksuid KSUID) uint96 {
@@ -39,6 +44,7 @@ func (v uint96) ksuid(timestamp uint64) (out KSUID) {
 	return
 }
 
+// The external byte serialization is big-endian (highest bits in lowest byte address)
 func (v uint96) bytes() (out [12]byte) {
 	binary.BigEndian.PutUint32(out[:4], v[2])
 	binary.BigEndian.PutUint32(out[4:8], v[1])
