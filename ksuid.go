@@ -15,14 +15,14 @@ import (
 const (
 	// KSUID's epoch starts more recently so that the 32-bit number space gives a
 	// significantly higher useful lifetime of around 136 years from March 2017.
-	// This number (14e8) was picked to be easy to remember.
-	epochStamp int64 = 1400000000
+	// This number (14e8 in seconds) was picked to be easy to remember.
+	epochStamp int64 = 1400000000000000000
 
 	// Timestamp is a uint32
-	timestampLengthInBytes = 4
+	timestampLengthInBytes = 8
 
 	// Payload is 16-bytes
-	payloadLengthInBytes = 16
+	payloadLengthInBytes = 12
 
 	// KSUIDs are 20 bytes when binary encoded
 	byteLength = timestampLengthInBytes + payloadLengthInBytes
@@ -38,8 +38,9 @@ const (
 )
 
 // KSUIDs are 20 bytes:
-//  00-03 byte: uint32 BE UTC timestamp with custom epoch
-//  04-19 byte: random "payload"
+//
+//	00-07 byte: uint64 BE UTC timestamp with nanosecond epoch
+//	08-19 byte: random "payload"
 type KSUID [byteLength]byte
 
 var (
@@ -71,8 +72,8 @@ func (i KSUID) Time() time.Time {
 
 // The timestamp portion of the ID as a bare integer which is uncorrected
 // for KSUID's special epoch.
-func (i KSUID) Timestamp() uint32 {
-	return binary.BigEndian.Uint32(i[:timestampLengthInBytes])
+func (i KSUID) Timestamp() uint64 {
+	return binary.BigEndian.Uint64(i[:timestampLengthInBytes])
 }
 
 // The 16-byte random payload without the timestamp
@@ -201,12 +202,12 @@ func ParseOrNil(s string) KSUID {
 	return ksuid
 }
 
-func timeToCorrectedUTCTimestamp(t time.Time) uint32 {
-	return uint32(t.Unix() - epochStamp)
+func timeToCorrectedUTCTimestamp(t time.Time) uint64 {
+	return uint64(t.UnixNano() - epochStamp)
 }
 
-func correctedUTCTimestampToTime(ts uint32) time.Time {
-	return time.Unix(int64(ts)+epochStamp, 0)
+func correctedUTCTimestampToTime(ts uint64) time.Time {
+	return time.Unix(0, int64(ts)+epochStamp)
 }
 
 // Generates a new KSUID. In the strange case that random bytes
@@ -241,7 +242,7 @@ func NewRandomWithTime(t time.Time) (ksuid KSUID, err error) {
 	}
 
 	ts := timeToCorrectedUTCTimestamp(t)
-	binary.BigEndian.PutUint32(ksuid[:timestampLengthInBytes], ts)
+	binary.BigEndian.PutUint64(ksuid[:timestampLengthInBytes], ts)
 	return
 }
 
@@ -254,7 +255,7 @@ func FromParts(t time.Time, payload []byte) (KSUID, error) {
 	var ksuid KSUID
 
 	ts := timeToCorrectedUTCTimestamp(t)
-	binary.BigEndian.PutUint32(ksuid[:timestampLengthInBytes], ts)
+	binary.BigEndian.PutUint64(ksuid[:timestampLengthInBytes], ts)
 
 	copy(ksuid[timestampLengthInBytes:], payload)
 
@@ -353,11 +354,11 @@ func quickSort(a []KSUID, lo int, hi int) {
 
 // Next returns the next KSUID after id.
 func (id KSUID) Next() KSUID {
-	zero := makeUint128(0, 0)
+	zero := makeUint96(0, 0)
 
 	t := id.Timestamp()
-	u := uint128Payload(id)
-	v := add128(u, makeUint128(0, 1))
+	u := uint96Payload(id)
+	v := add96(u, makeUint96(0, 1))
 
 	if v == zero { // overflow
 		t++
@@ -368,11 +369,11 @@ func (id KSUID) Next() KSUID {
 
 // Prev returns the previoud KSUID before id.
 func (id KSUID) Prev() KSUID {
-	max := makeUint128(math.MaxUint64, math.MaxUint64)
+	max := makeUint96(math.MaxUint32, math.MaxUint64)
 
 	t := id.Timestamp()
-	u := uint128Payload(id)
-	v := sub128(u, makeUint128(0, 1))
+	u := uint96Payload(id)
+	v := sub96(u, makeUint96(0, 1))
 
 	if v == max { // overflow
 		t--

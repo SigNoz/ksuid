@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/segmentio/ksuid"
+	"github.com/signoz/ksuid"
 )
 
 var (
@@ -128,7 +128,7 @@ func printTemplate(id ksuid.KSUID) {
 		String    string
 		Raw       string
 		Time      time.Time
-		Timestamp uint32
+		Timestamp uint64
 		Payload   string
 	}{
 		String:    id.String(),
